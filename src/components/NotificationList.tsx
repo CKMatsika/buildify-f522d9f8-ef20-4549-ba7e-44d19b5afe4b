@@ -1,126 +1,154 @@
 
 import React from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Bell, Calendar, BookOpen, CreditCard, AlertCircle } from 'lucide-react';
-import { cn } from '@/lib/utils';
-
-interface Notification {
-  id: string;
-  title: string;
-  message: string;
-  timestamp: string;
-  type: 'homework' | 'event' | 'payment' | 'alert' | 'message';
-  read: boolean;
-  actionUrl?: string;
-}
+import { Bell, Calendar, MessageSquare, CreditCard, AlertTriangle, CheckCircle, Trash2, ExternalLink } from 'lucide-react';
+import { Notification, markNotificationAsRead, deleteNotification } from '@/lib/supabase';
+import { format, formatDistanceToNow } from 'date-fns';
 
 interface NotificationListProps {
   notifications: Notification[];
-  onNotificationClick: (notification: Notification) => void;
+  onNotificationsChange: () => void;
 }
 
 const NotificationList: React.FC<NotificationListProps> = ({ 
   notifications, 
-  onNotificationClick 
+  onNotificationsChange 
 }) => {
+  const handleMarkAsRead = async (notificationId: string) => {
+    try {
+      await markNotificationAsRead(notificationId);
+      onNotificationsChange();
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const handleDelete = async (notificationId: string) => {
+    try {
+      await deleteNotification(notificationId);
+      onNotificationsChange();
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+    }
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'homework':
+        return <Bell className="h-5 w-5 text-blue-500" />;
+      case 'event':
+        return <Calendar className="h-5 w-5 text-green-500" />;
+      case 'message':
+        return <MessageSquare className="h-5 w-5 text-purple-500" />;
+      case 'payment':
+        return <CreditCard className="h-5 w-5 text-yellow-500" />;
+      case 'alert':
+        return <AlertTriangle className="h-5 w-5 text-red-500" />;
+      default:
+        return <Bell className="h-5 w-5 text-gray-500" />;
+    }
+  };
+
+  const getPriorityBadge = (priority: string) => {
+    switch (priority) {
+      case 'high':
+        return <Badge variant="destructive">High Priority</Badge>;
+      case 'normal':
+        return <Badge variant="secondary">Normal</Badge>;
+      case 'low':
+        return <Badge variant="outline">Low</Badge>;
+      default:
+        return null;
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    if (isToday) {
+      return `Today, ${format(date, 'h:mm a')}`;
+    }
+    
+    return format(date, 'MMM d, yyyy h:mm a');
+  };
+
+  const getTimeAgo = (dateString: string) => {
+    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+  };
+
   if (notifications.length === 0) {
     return (
-      <div className="text-center p-8 border rounded-lg">
-        <Bell className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-        <h3 className="text-lg font-medium">No notifications</h3>
-        <p className="text-muted-foreground">You're all caught up!</p>
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <Bell className="h-12 w-12 text-gray-300 mb-4" />
+        <h3 className="text-lg font-medium text-gray-900">No notifications</h3>
+        <p className="mt-1 text-sm text-gray-500">
+          You're all caught up! Check back later for new notifications.
+        </p>
       </div>
     );
   }
-
-  const getNotificationIcon = (type: Notification['type']) => {
-    switch (type) {
-      case 'homework':
-        return <BookOpen className="h-5 w-5" />;
-      case 'event':
-        return <Calendar className="h-5 w-5" />;
-      case 'payment':
-        return <CreditCard className="h-5 w-5" />;
-      case 'alert':
-        return <AlertCircle className="h-5 w-5" />;
-      case 'message':
-        return <Bell className="h-5 w-5" />;
-      default:
-        return <Bell className="h-5 w-5" />;
-    }
-  };
-
-  const getNotificationColor = (type: Notification['type']) => {
-    switch (type) {
-      case 'homework':
-        return 'bg-blue-100 text-blue-800';
-      case 'event':
-        return 'bg-purple-100 text-purple-800';
-      case 'payment':
-        return 'bg-green-100 text-green-800';
-      case 'alert':
-        return 'bg-red-100 text-red-800';
-      case 'message':
-        return 'bg-yellow-100 text-yellow-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.round(diffMs / 60000);
-    const diffHours = Math.round(diffMs / 3600000);
-    const diffDays = Math.round(diffMs / 86400000);
-
-    if (diffMins < 60) {
-      return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
-    } else if (diffDays < 7) {
-      return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
-    } else {
-      return date.toLocaleDateString();
-    }
-  };
 
   return (
     <div className="space-y-4">
       {notifications.map((notification) => (
         <Card 
-          key={notification.id}
-          className={cn(
-            "cursor-pointer transition-colors hover:bg-muted/50",
-            !notification.read && "border-l-4 border-primary"
-          )}
-          onClick={() => onNotificationClick(notification)}
+          key={notification.id} 
+          className={`transition-all ${!notification.is_read ? 'border-l-4 border-l-blue-500' : ''}`}
         >
-          <CardContent className="p-4">
-            <div className="flex items-start gap-4">
-              <div className={cn("p-2 rounded-full", getNotificationColor(notification.type))}>
-                {getNotificationIcon(notification.type)}
+          <CardHeader className="pb-2">
+            <div className="flex justify-between items-start">
+              <div className="flex items-center space-x-2">
+                {getNotificationIcon(notification.notification_type)}
+                <CardTitle className="text-lg">
+                  {notification.title}
+                </CardTitle>
               </div>
-              <div className="flex-1 space-y-1">
-                <div className="flex justify-between items-start">
-                  <h3 className={cn("font-medium", !notification.read && "font-bold")}>
-                    {notification.title}
-                  </h3>
-                  <span className="text-xs text-muted-foreground">
-                    {formatTimestamp(notification.timestamp)}
-                  </span>
-                </div>
-                <p className="text-sm text-muted-foreground">{notification.message}</p>
-                {!notification.read && (
-                  <Badge variant="outline" className="bg-primary/10 text-primary">
-                    New
-                  </Badge>
-                )}
-              </div>
+              {getPriorityBadge(notification.priority)}
             </div>
+            <CardDescription className="flex justify-between items-center">
+              <span>{formatDate(notification.created_at)}</span>
+              <span className="text-xs">{getTimeAgo(notification.created_at)}</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-gray-700">{notification.message}</p>
           </CardContent>
+          <CardFooter className="flex justify-between pt-2">
+            <div className="flex space-x-2">
+              {!notification.is_read && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => handleMarkAsRead(notification.id)}
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Mark as Read
+                </Button>
+              )}
+              {notification.link && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => window.open(notification.link, '_blank')}
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Open Link
+                </Button>
+              )}
+            </div>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => handleDelete(notification.id)}
+              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </CardFooter>
         </Card>
       ))}
     </div>

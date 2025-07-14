@@ -1,184 +1,170 @@
 
-// Service Worker for handling push notifications
+// Service Worker for Betterlink SchoolConnect App
 
-const CACHE_NAME = 'betterlink-schoolconnect-v1';
+const CACHE_NAME = 'schoolconnect-v1';
 const OFFLINE_URL = '/offline.html';
 
-// Install event - cache essential files for offline use
+// Assets to cache on install
+const ASSETS_TO_CACHE = [
+  '/',
+  '/index.html',
+  '/offline.html',
+  '/icons/notification-icon.png',
+  '/icons/badge-icon.png',
+  // Add other assets you want to cache
+];
+
+// Install event - cache assets
 self.addEventListener('install', (event) => {
-  console.log('Service Worker installing...');
-  
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll([
-        '/',
-        '/index.html',
-        '/offline.html',
-        '/icons/notification-icon.png',
-        '/icons/badge-icon.png'
-      ]);
-    })
+    caches.open(CACHE_NAME)
+      .then((cache) => {
+        console.log('Opened cache');
+        return cache.addAll(ASSETS_TO_CACHE);
+      })
+      .then(() => self.skipWaiting())
   );
-  
-  // Force the waiting service worker to become the active service worker
-  self.skipWaiting();
 });
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-  console.log('Service Worker activating...');
-  
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
-            console.log('Service Worker: clearing old cache:', cacheName);
+            console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  
-  // Claim clients so the service worker is in control immediately
-  self.clients.claim();
 });
 
-// Fetch event - serve from cache if available, otherwise fetch from network
+// Fetch event - serve from cache or network
 self.addEventListener('fetch', (event) => {
   // Skip cross-origin requests
   if (!event.request.url.startsWith(self.location.origin)) {
     return;
   }
-  
+
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      
-      return fetch(event.request)
-        .then((response) => {
-          // Don't cache responses that aren't successful
-          if (!response || response.status !== 200 || response.type !== 'basic') {
+    caches.match(event.request)
+      .then((response) => {
+        if (response) {
+          return response;
+        }
+
+        return fetch(event.request).then(
+          (response) => {
+            // Don't cache responses that aren't successful
+            if (!response || response.status !== 200 || response.type !== 'basic') {
+              return response;
+            }
+
+            // Clone the response since it can only be consumed once
+            const responseToCache = response.clone();
+
+            caches.open(CACHE_NAME)
+              .then((cache) => {
+                cache.put(event.request, responseToCache);
+              });
+
             return response;
           }
-          
-          // Clone the response since it can only be consumed once
-          const responseToCache = response.clone();
-          
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-          
-          return response;
-        })
-        .catch(() => {
-          // If the request is for a page, return the offline page
-          if (event.request.mode === 'navigate') {
-            return caches.match(OFFLINE_URL);
-          }
-          
-          // Otherwise just return a 404 response
-          return new Response('Not found', { status: 404 });
-        });
-    })
+        );
+      })
+      .catch(() => {
+        // If both cache and network fail, show offline page
+        if (event.request.mode === 'navigate') {
+          return caches.match(OFFLINE_URL);
+        }
+      })
   );
 });
 
-// Push event - handle incoming push notifications
+// Push notification event
 self.addEventListener('push', (event) => {
-  console.log('Service Worker: Push event received');
+  let notification = {};
   
-  let notificationData = {};
-  
-  if (event.data) {
-    try {
-      notificationData = event.data.json();
-    } catch (e) {
-      notificationData = {
-        title: 'New Notification',
-        message: event.data.text()
-      };
-    }
-  } else {
-    notificationData = {
+  try {
+    notification = event.data.json();
+  } catch (e) {
+    notification = {
       title: 'New Notification',
-      message: 'You have a new notification'
+      message: event.data ? event.data.text() : 'No details available',
+      icon: '/icons/notification-icon.png'
     };
   }
   
-  const title = notificationData.title || 'SchoolConnect';
   const options = {
-    body: notificationData.message || 'You have a new notification',
-    icon: '/icons/notification-icon.png',
+    body: notification.message || 'You have a new notification',
+    icon: notification.icon || '/icons/notification-icon.png',
     badge: '/icons/badge-icon.png',
     data: {
-      url: notificationData.actionUrl || '/',
-      notificationType: notificationData.type || 'message'
+      url: notification.link || '/',
+      notificationId: notification.id || null
     },
-    vibrate: [100, 50, 100],
-    timestamp: notificationData.timestamp || Date.now()
+    actions: [
+      {
+        action: 'view',
+        title: 'View',
+      },
+      {
+        action: 'dismiss',
+        title: 'Dismiss',
+      }
+    ]
   };
   
   event.waitUntil(
-    self.registration.showNotification(title, options)
-      .then(() => {
-        // Also notify any open clients
-        return self.clients.matchAll({ type: 'window' });
-      })
-      .then((clients) => {
-        if (clients && clients.length) {
-          // Send a message to all clients
-          clients.forEach((client) => {
-            client.postMessage({
-              type: 'NOTIFICATION',
-              id: Date.now().toString(),
-              title: notificationData.title,
-              message: notificationData.message,
-              timestamp: new Date().toISOString(),
-              notificationType: notificationData.type || 'message',
-              actionUrl: notificationData.actionUrl
-            });
-          });
-        }
-      })
+    self.registration.showNotification(notification.title || 'SchoolConnect', options)
   );
 });
 
-// Notification click event - open the relevant page when notification is clicked
+// Notification click event
 self.addEventListener('notificationclick', (event) => {
-  console.log('Service Worker: Notification click received');
-  
   event.notification.close();
   
-  const urlToOpen = event.notification.data && event.notification.data.url
-    ? new URL(event.notification.data.url, self.location.origin).href
-    : self.location.origin;
+  if (event.action === 'dismiss') {
+    return;
+  }
+  
+  const urlToOpen = event.notification.data?.url || '/';
+  const notificationId = event.notification.data?.notificationId;
   
   event.waitUntil(
-    self.clients.matchAll({ type: 'window' }).then((clientList) => {
-      // Check if there's already a window/tab open with the target URL
+    clients.matchAll({ type: 'window' }).then((clientList) => {
+      // If a window client is already open, focus it and navigate
       for (const client of clientList) {
         if (client.url === urlToOpen && 'focus' in client) {
-          return client.focus();
+          client.focus();
+          
+          // If we have a notification ID, mark it as read
+          if (notificationId) {
+            client.postMessage({
+              type: 'NOTIFICATION_CLICKED',
+              notificationId
+            });
+          }
+          
+          return;
         }
       }
       
-      // If no window/tab is open with the target URL, open a new one
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(urlToOpen);
+      // Otherwise, open a new window
+      if (clients.openWindow) {
+        clients.openWindow(urlToOpen).then((client) => {
+          // If we have a notification ID, mark it as read
+          if (client && notificationId) {
+            client.postMessage({
+              type: 'NOTIFICATION_CLICKED',
+              notificationId
+            });
+          }
+        });
       }
     })
   );
-});
-
-// Message event - handle messages from the main thread
-self.addEventListener('message', (event) => {
-  console.log('Service Worker: Message received', event.data);
-  
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
 });

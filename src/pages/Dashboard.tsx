@@ -1,236 +1,229 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Bell, Settings, LogOut, MessageSquare, Calendar, BookOpen, AlertCircle } from 'lucide-react';
+import { Bell, LogOut, RefreshCw, CheckCheck } from 'lucide-react';
 import NotificationList from '@/components/NotificationList';
 import WebViewFrame from '@/components/WebViewFrame';
-import { useToast } from '@/components/ui/use-toast';
-import { registerNotificationHandlers } from '@/services/notificationService';
-
-// Mock notification data
-const mockNotifications = [
-  {
-    id: '1',
-    title: 'New Homework Posted',
-    message: 'Math homework due next Monday',
-    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 minutes ago
-    type: 'homework',
-    read: false,
-    actionUrl: '/homework/123'
-  },
-  {
-    id: '2',
-    title: 'Parent-Teacher Meeting',
-    message: 'Scheduled for Friday at 4:00 PM',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
-    type: 'event',
-    read: true,
-    actionUrl: '/calendar/meeting/456'
-  },
-  {
-    id: '3',
-    title: 'Fee Payment Due',
-    message: 'School fees for Q3 are due by the end of this week',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
-    type: 'payment',
-    read: false,
-    actionUrl: '/payments/789'
-  },
-  {
-    id: '4',
-    title: 'Class Canceled',
-    message: 'Science class is canceled tomorrow due to teacher illness',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(), // 2 days ago
-    type: 'alert',
-    read: false,
-    actionUrl: '/schedule/changes'
-  }
-];
+import { supabase, getCurrentUser, getUserProfile, User } from '@/lib/supabase';
+import { 
+  getNotifications, 
+  markAllNotificationsAsRead, 
+  getUnreadNotificationCount,
+  registerServiceWorker,
+  subscribeToPushNotifications,
+  sendTestNotification
+} from '@/services/notificationService';
+import { Notification } from '@/lib/supabase';
 
 const Dashboard = () => {
-  const [notifications, setNotifications] = useState(mockNotifications);
-  const [activeTab, setActiveTab] = useState('notifications');
-  const [schoolUrl, setSchoolUrl] = useState('');
-  const [username, setUsername] = useState('');
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState('notifications');
+  const [user, setUser] = useState<User | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    // Load user data from localStorage
-    const storedSchoolUrl = localStorage.getItem('schoolUrl');
-    const storedUsername = localStorage.getItem('username');
-    
-    if (storedSchoolUrl) setSchoolUrl(storedSchoolUrl);
-    if (storedUsername) setUsername(storedUsername);
-    
-    // Register notification handlers
-    const unregister = registerNotificationHandlers((newNotification) => {
-      setNotifications(prev => [newNotification, ...prev]);
-      
-      toast({
-        title: newNotification.title,
-        description: newNotification.message,
-      });
-    });
-    
-    return () => {
-      if (unregister) unregister();
+    const initializeApp = async () => {
+      try {
+        // Check if user is logged in
+        const currentUser = await getCurrentUser();
+        if (!currentUser) {
+          navigate('/login');
+          return;
+        }
+
+        // Get user profile
+        const profile = await getUserProfile(currentUser.id);
+        setUser(profile);
+
+        // Register service worker
+        await registerServiceWorker();
+
+        // Subscribe to push notifications
+        await subscribeToPushNotifications(currentUser.id);
+
+        // Load notifications
+        await loadNotifications(currentUser.id);
+      } catch (error) {
+        console.error('Error initializing app:', error);
+        navigate('/login');
+      } finally {
+        setIsLoading(false);
+      }
     };
-  }, [toast]);
 
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('schoolUrl');
-    localStorage.removeItem('username');
-    navigate('/login');
+    initializeApp();
+
+    // Set up auth state listener
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_OUT') {
+          navigate('/login');
+        } else if (event === 'SIGNED_IN' && session) {
+          const profile = await getUserProfile(session.user.id);
+          setUser(profile);
+          await loadNotifications(session.user.id);
+        }
+      }
+    );
+
+    // Set up notification refresh interval
+    const refreshInterval = setInterval(() => {
+      if (user) {
+        loadNotifications(user.id);
+      }
+    }, 60000); // Refresh every minute
+
+    return () => {
+      authListener.subscription.unsubscribe();
+      clearInterval(refreshInterval);
+    };
+  }, [navigate]);
+
+  const loadNotifications = async (userId: string) => {
+    try {
+      const notificationData = await getNotifications(userId);
+      setNotifications(notificationData);
+      
+      const count = await getUnreadNotificationCount(userId);
+      setUnreadCount(count);
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+    }
   };
 
-  const handleNotificationClick = (notification: any) => {
-    // Mark notification as read
-    setNotifications(notifications.map(n => 
-      n.id === notification.id ? { ...n, read: true } : n
-    ));
+  const handleRefresh = async () => {
+    if (!user) return;
     
-    // Navigate to the specific section in the web app
-    setActiveTab('webview');
-    // In a real app, we would navigate to the specific URL within the webview
+    setRefreshing(true);
+    try {
+      await loadNotifications(user.id);
+    } catch (error) {
+      console.error('Error refreshing notifications:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const handleMarkAllAsRead = async () => {
+    if (!user) return;
+    
+    try {
+      await markAllNotificationsAsRead(user.id);
+      await loadNotifications(user.id);
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
+  const handleSendTestNotification = async () => {
+    if (!user) return;
+    
+    try {
+      await sendTestNotification(user.id);
+      setTimeout(() => {
+        handleRefresh();
+      }, 1000);
+    } catch (error) {
+      console.error('Error sending test notification:', error);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-4 text-lg">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="flex flex-col min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-primary text-primary-foreground p-4 shadow-md">
-        <div className="container mx-auto flex justify-between items-center">
-          <div className="flex items-center space-x-2">
-            <h1 className="text-xl font-bold">SchoolConnect</h1>
-            {schoolUrl && (
-              <Badge variant="outline" className="bg-primary-foreground/10 text-primary-foreground">
-                {new URL(schoolUrl).hostname}
-              </Badge>
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+          <div className="flex items-center">
+            <h1 className="text-xl font-bold text-gray-900">SchoolConnect</h1>
+            {user && (
+              <span className="ml-4 text-sm text-gray-500 truncate max-w-[200px]">
+                {user.school_url}
+              </span>
             )}
           </div>
-          <div className="flex items-center space-x-2">
-            <Button variant="ghost" size="icon" onClick={() => setActiveTab('notifications')}>
-              <Bell className="h-5 w-5" />
-              {unreadCount > 0 && (
-                <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 bg-destructive text-destructive-foreground">
-                  {unreadCount}
-                </Badge>
-              )}
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => setActiveTab('settings')}>
-              <Settings className="h-5 w-5" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-5 w-5" />
+          <div className="flex items-center space-x-4">
+            <Button variant="outline" size="sm" onClick={handleSignOut}>
+              <LogOut className="h-4 w-4 mr-2" />
+              Sign Out
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 container mx-auto p-4">
+      {/* Main content */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid grid-cols-3 mb-4">
-            <TabsTrigger value="notifications" className="relative">
-              Notifications
-              {unreadCount > 0 && (
-                <Badge className="ml-2 bg-primary text-primary-foreground">
-                  {unreadCount}
-                </Badge>
+          <div className="flex justify-between items-center mb-4">
+            <TabsList>
+              <TabsTrigger value="notifications" className="relative">
+                Notifications
+                {unreadCount > 0 && (
+                  <Badge variant="destructive" className="ml-2 absolute -top-2 -right-2">
+                    {unreadCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="webview">School Web App</TabsTrigger>
+            </TabsList>
+            
+            <div className="flex space-x-2">
+              {activeTab === 'notifications' && (
+                <>
+                  <Button variant="outline" size="sm" onClick={handleMarkAllAsRead} disabled={unreadCount === 0}>
+                    <CheckCheck className="h-4 w-4 mr-2" />
+                    Mark All Read
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+                    <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleSendTestNotification}>
+                    <Bell className="h-4 w-4 mr-2" />
+                    Test Notification
+                  </Button>
+                </>
               )}
-            </TabsTrigger>
-            <TabsTrigger value="webview">Web App</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
-          </TabsList>
+            </div>
+          </div>
           
-          <TabsContent value="notifications" className="space-y-4">
-            <h2 className="text-2xl font-bold">Notifications</h2>
+          <TabsContent value="notifications" className="mt-2">
             <NotificationList 
               notifications={notifications} 
-              onNotificationClick={handleNotificationClick} 
+              onNotificationsChange={() => user && loadNotifications(user.id)} 
             />
           </TabsContent>
           
-          <TabsContent value="webview">
-            <h2 className="text-2xl font-bold mb-4">School Web App</h2>
-            {schoolUrl ? (
-              <WebViewFrame url={schoolUrl} />
-            ) : (
-              <div className="text-center p-8 border rounded-lg">
-                <p>No school URL configured. Please log out and log in again.</p>
-              </div>
-            )}
-          </TabsContent>
-          
-          <TabsContent value="settings">
-            <div className="space-y-6">
-              <h2 className="text-2xl font-bold">Settings</h2>
-              
-              <div className="space-y-2">
-                <h3 className="text-lg font-medium">Account Information</h3>
-                <div className="bg-muted p-4 rounded-md">
-                  <p><strong>Username:</strong> {username}</p>
-                  <p><strong>School URL:</strong> {schoolUrl}</p>
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <h3 className="text-lg font-medium">Notification Settings</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <BookOpen className="h-5 w-5" />
-                      <span>Homework Notifications</span>
-                    </div>
-                    <Button variant="outline" size="sm">Enabled</Button>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <MessageSquare className="h-5 w-5" />
-                      <span>Message Notifications</span>
-                    </div>
-                    <Button variant="outline" size="sm">Enabled</Button>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Calendar className="h-5 w-5" />
-                      <span>Event Notifications</span>
-                    </div>
-                    <Button variant="outline" size="sm">Enabled</Button>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <AlertCircle className="h-5 w-5" />
-                      <span>Alert Notifications</span>
-                    </div>
-                    <Button variant="outline" size="sm">Enabled</Button>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="pt-4">
-                <Button variant="destructive" onClick={handleLogout}>
-                  Log Out
-                </Button>
-              </div>
-            </div>
+          <TabsContent value="webview" className="mt-2">
+            {user && <WebViewFrame url={user.school_url} />}
           </TabsContent>
         </Tabs>
       </main>
-      
-      {/* Footer */}
-      <footer className="bg-muted p-4 text-center text-sm">
-        <p>© 2025 Betterlink SchoolConnect</p>
-      </footer>
     </div>
   );
 };

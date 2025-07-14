@@ -9,9 +9,19 @@ const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/offline.html',
+  '/manifest.json',
   '/icons/notification-icon.png',
   '/icons/badge-icon.png',
-  // Add other assets you want to cache
+  '/icons/icon-72x72.png',
+  '/icons/icon-96x96.png',
+  '/icons/icon-128x128.png',
+  '/icons/icon-144x144.png',
+  '/icons/icon-152x152.png',
+  '/icons/icon-192x192.png',
+  '/icons/icon-384x384.png',
+  '/icons/icon-512x512.png',
+  '/assets/index.css',
+  '/assets/index.js'
 ];
 
 // Install event - cache assets
@@ -100,7 +110,7 @@ self.addEventListener('push', (event) => {
   
   const options = {
     body: notification.message || 'You have a new notification',
-    icon: notification.icon || '/icons/notification-icon.png',
+    icon: notification.icon || '/icons/icon-192x192.png',
     badge: '/icons/badge-icon.png',
     data: {
       url: notification.link || '/',

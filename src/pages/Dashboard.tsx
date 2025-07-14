@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Bell, LogOut, RefreshCw, CheckCheck } from 'lucide-react';
 import NotificationList from '@/components/NotificationList';
 import WebViewFrame from '@/components/WebViewFrame';
-import { supabase, getCurrentUser, getUserProfile, User } from '@/lib/supabase';
+import { supabase, getCurrentUser, getUserProfile, User, Notification as NotificationType } from '@/lib/supabase';
 import { 
   getNotifications, 
   markAllNotificationsAsRead, 
@@ -16,13 +16,12 @@ import {
   subscribeToPushNotifications,
   sendTestNotification
 } from '@/services/notificationService';
-import { Notification } from '@/lib/supabase';
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('notifications');
   const [user, setUser] = useState<User | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationType[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -227,5 +226,7 @@ const Dashboard = () => {
     </div>
   );
 };
+
+export default Dashboard;
 
 export default Dashboard;

@@ -1,5 +1,5 @@
 
-import { supabase, Notification, getNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification, getUnreadNotificationCount } from '@/lib/supabase';
+import { supabase, Notification as NotificationType, getNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification, getUnreadNotificationCount } from '@/lib/supabase';
 
 // Register the service worker
 export const registerServiceWorker = async () => {
@@ -82,7 +82,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 // Show a notification
-export const showNotification = async (notification: Notification) => {
+export const showNotification = async (notification: NotificationType) => {
   if (!('Notification' in window)) {
     console.error('This browser does not support desktop notification');
     return;

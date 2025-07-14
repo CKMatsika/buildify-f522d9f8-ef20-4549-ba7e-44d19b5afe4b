@@ -4,11 +4,11 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Bell, Calendar, MessageSquare, CreditCard, AlertTriangle, CheckCircle, Trash2, ExternalLink } from 'lucide-react';
-import { Notification, markNotificationAsRead, deleteNotification } from '@/lib/supabase';
+import { Notification as NotificationType, markNotificationAsRead, deleteNotification } from '@/lib/supabase';
 import { format, formatDistanceToNow } from 'date-fns';
 
 interface NotificationListProps {
-  notifications: Notification[];
+  notifications: NotificationType[];
   onNotificationsChange: () => void;
 }
 
